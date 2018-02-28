@@ -1,3 +1,5 @@
+require("babel-polyfill")
+
 const get = require('lodash.get')
 const set = require('lodash.set')
 const camelCase = require('lodash.camelcase')
@@ -19,7 +21,15 @@ const shouldRollup = [
   'og:audio'
 ]
 
-async function unfurl (url, init = {}) {
+unfurl('http://crugo.com')
+  .then(x => console.log('GOODGOOD', x))
+  .catch(err => console.log('BADBAD', err))
+
+function unfurl (url, init) {
+  debug('\n\n :::: unfurl ::::\n\n')
+
+  init = init || {}
+
   const pkgOpts = {
     ogp: get(init, 'ogp', true),
     twitter: get(init, 'twitter', true),
@@ -33,38 +43,17 @@ async function unfurl (url, init = {}) {
     compress: get(init, 'compress', true)
   }
 
-  let metadata = await scrape(url, pkgOpts, fetchOpts)
-    .then(postProcess)
-
-  if (pkgOpts.oembed && metadata.oembed) {
-    let oembedData = await fetch(metadata.oembed, fetchOpts)
-      .then(res => res.json())
-
-
-    const unwind = get(oembedData, 'body', oembedData)
-
-    // Even if we don't find valid oembed data we'll return an obj rather than the url string
-    metadata.oembed = {}
-
-    for (const [k, v] of Object.entries(unwind)) {
-      const camelKey = camelCase(k)
-      if (!oembed.includes(camelKey)) {
-        continue
-      }
-
-
-      metadata.oembed[camelKey] = v
-    }
-  }
-
-  return metadata
+  return fetch(url, fetchOpts)
+    .then(res => res.body)
+    .then(res => handleStream(res, pkgOpts))
+    .then(res => postProcess(res, pkgOpts))
 }
 
-async function scrape (url, pkgOpts, fetchOpts) {
-  let pkg = Object.create(null)
+function handleStream (res, pkgOpts) {
+  return new Promise((resolve, reject) => {
+    debug('\n\n :::: handleStream ::::\n\n')
 
-  return new Promise(async (resolve, reject) => {
-    let parserStream = new htmlparser2.WritableStream({
+    const parser = new htmlparser2.WritableStream({
       onopentag,
       ontext,
       onclosetag,
@@ -72,13 +61,11 @@ async function scrape (url, pkgOpts, fetchOpts) {
       onopentagname
     }, {decodeEntities: true})
 
-    let res = await fetch(url, fetchOpts)
-      .then(res => res.body)
+    const pkg = {}
+    res.pipe(parser)
 
-    res.pipe(parserStream)
-  
     function onopentagname (tag) {
-      debug('<' + tag + '>')
+      // debug('<' + tag + '>')
 
       this._tagname = tag
     }
@@ -95,8 +82,8 @@ async function scrape (url, pkgOpts, fetchOpts) {
     }
 
     function onopentag (name, attr) {
-      let prop = attr.property || attr.name || attr.rel
-      let val = attr.content || attr.value || attr.href
+      const prop = attr.property || attr.name || attr.rel
+      const val = attr.content || attr.value || attr.href
 
       if (!prop) return
 
@@ -123,27 +110,29 @@ async function scrape (url, pkgOpts, fetchOpts) {
     }
 
     function onclosetag (tag) {
-      debug('</' + tag + '>')
+      // debug('</' + tag + '>')
 
       this._tagname = ''
-  
+
       if (tag === 'head') {
-        res.unpipe(parserStream)
-        parserStream.destroy()
-        res.destroy()
-        parserStream._parser.reset() // Parse as little as possible.
+        res.unpipe(parser)
+        parser.end()
+        res.end()
+        parser._parser.reset() // Parse as little as possible.
       }
     }
 
-    res.on('response', function ({ headers }) {
-      let contentType = get(headers, 'content-type', '')
+    res.on('response', function (res) {
+      const headers = res.headers
 
-      // Abort if content type is not text/html or varient
+      const contentType = get(headers, 'content-type', '')
+
+      // Abort if content type is not text/html or constient
       if (!contentType.includes('html')) {
-        res.unpipe(parserStream)
-        parserStream.destroy()
-        res.destroy()
-        parserStream._parser.reset() // Parse as little as possible.
+        res.unpipe(parser)
+        parser.end()
+        res.end()
+        parser._parser.reset() // Parse as little as possible.
         set(pkg, 'other._type', contentType)
       }
     })
@@ -161,6 +150,8 @@ async function scrape (url, pkgOpts, fetchOpts) {
 }
 
 function rollup (target, name, val) {
+  debug('\n\n :::: rollup ::::\n\n')
+
   if (!name || !val) return
 
   let rollupAs = shouldRollup.find(function (k) {
@@ -171,7 +162,6 @@ function rollup (target, name, val) {
     let namePart = name.slice(rollupAs.length)
     let prop = !namePart ? 'url' : camelCase(namePart)
     rollupAs = camelCase(rollupAs)
-
     target = (target[rollupAs] || (target[rollupAs] = [{}]))
 
     let last = target[target.length - 1]
@@ -181,13 +171,15 @@ function rollup (target, name, val) {
     return
   }
 
-  let prop = camelCase(name)
+  const prop = camelCase(name)
   target[prop] = val
 }
 
-function postProcess (obj) {
+function postProcess (pkg, pkgOpts) {
 
-  let keys = [
+  debug('\n\n :::: postProcess ::::\n\n')
+
+  const keys = [
     'ogp.ogImage',
     'twitter.twitterImage',
     'twitter.twitterPlayer',
@@ -195,15 +187,38 @@ function postProcess (obj) {
   ]
 
   for (const key of keys) {
-    let val = get(obj, key)
+    let val = get(pkg, key)
     if (!val) continue
-    
+
     val = val.sort((a, b) => a.width - b.width) // asc sort
 
-    set(obj, key, val)
+    set(pkg, key, val)
   }
 
-  return obj
+  if (pkgOpts.oembed && pkg.oembed) {
+    return fetch(pkg.oembed)
+      .then(res => res.json())
+      .then(oembedData => {
+        const unwind = get(oembedData, 'body', oembedData)
+
+        // Even if we don't find valid oembed data we'll return an obj rather than the url string
+        pkg.oembed = {}
+
+        for (const [k, v] of Object.entries(unwind)) {
+          const camelKey = camelCase(k)
+          if (!oembed.includes(camelKey)) {
+            continue
+          }
+
+          pkg.oembed[camelKey] = v
+        }
+
+        return pkg
+      })
+  }
+
+  debug('DONEZO')
+  return Promise.resolve(pkg)
 }
 
 module.exports = unfurl
