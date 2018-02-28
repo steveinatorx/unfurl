@@ -53,7 +53,7 @@ function handleStream (res, pkgOpts) {
   return new Promise((resolve, reject) => {
     debug('\n\n :::: handleStream ::::\n\n')
 
-    const parser = new htmlparser2.WritableStream({
+    const parser = new htmlparser2.Parser({
       onopentag,
       ontext,
       onclosetag,
@@ -110,18 +110,26 @@ function handleStream (res, pkgOpts) {
     }
 
     function onclosetag (tag) {
-      // debug('</' + tag + '>')
+      debug('</' + tag + '>')
 
       this._tagname = ''
 
       if (tag === 'head') {
         debug('GOT HEAD. SHOULD STOP NOW')
 
-        // res.unpipe(parser)
-        res.end()
-        parser._parser.end()
-        parser._parser.reset() // Parse as little as possible.
+        parser.end()
+        parser.reset() // Parse as little as possible.
+
+        res.unpipe(parser)
+        res.resume()
+
+        if (typeof res.destroy === 'function') {
+          res.destroy()
+        }
+
       }
+
+      // debug('res', res)
     }
 
     res.on('response', function (res) {
@@ -139,12 +147,16 @@ function handleStream (res, pkgOpts) {
       }
     })
 
-    res.on('end', () => {
+    res.on('data', () => {
+      debug('GOT SOME DATA')
+    })
+
+    res.once('end', () => {
       debug('ENDED')
       resolve(pkg)
     })
 
-    res.on('error', (err) => {
+    res.once('error', (err) => {
       debug('ERRD', err.message)
       reject(err)
     })
