@@ -21,7 +21,7 @@ const shouldRollup = [
   'og:audio'
 ]
 
-unfurl('http://crugo.com')
+unfurl('http://facebook.com')
   .then(x => console.log('GOODGOOD', x))
   .catch(err => console.log('BADBAD', err))
 
@@ -45,8 +45,8 @@ function unfurl (url, init) {
 
   return fetch(url, fetchOpts)
     .then(res => res.body)
-    .then(res => handleStream(res, pkgOpts))
-    .then(res => postProcess(res, pkgOpts))
+    .then(res => handleStream(res, pkgOpts)) // TODO compose these fns better.
+    .then(res => postProcess(res, pkgOpts)) // TODO compose these fns better.
 }
 
 function handleStream (res, pkgOpts) {
@@ -115,9 +115,11 @@ function handleStream (res, pkgOpts) {
       this._tagname = ''
 
       if (tag === 'head') {
-        res.unpipe(parser)
-        parser.end()
+        debug('GOT HEAD. SHOULD STOP NOW')
+
+        // res.unpipe(parser)
         res.end()
+        parser._parser.end()
         parser._parser.reset() // Parse as little as possible.
       }
     }
@@ -129,21 +131,21 @@ function handleStream (res, pkgOpts) {
 
       // Abort if content type is not text/html or constient
       if (!contentType.includes('html')) {
+        // parser.pause()
+        res.pause()
         res.unpipe(parser)
-        parser.end()
-        res.end()
         parser._parser.reset() // Parse as little as possible.
         set(pkg, 'other._type', contentType)
       }
     })
 
     res.on('end', () => {
-      debug('parsed')
+      debug('ENDED')
       resolve(pkg)
     })
 
     res.on('error', (err) => {
-      debug('parse error', err.message)
+      debug('ERRD', err.message)
       reject(err)
     })
   })
@@ -176,7 +178,6 @@ function rollup (target, name, val) {
 }
 
 function postProcess (pkg, pkgOpts) {
-
   debug('\n\n :::: postProcess ::::\n\n')
 
   const keys = [

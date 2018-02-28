@@ -20,9 +20,9 @@ var debug = require('debug')('unfurl');
 var shouldRollup = ['og:image', 'twitter:image', 'twitter:player', 'og:video', 'og:audio'];
 
 unfurl('http://crugo.com').then(function (x) {
-  return debug('GOODGOOD', x);
+  return console.log('GOODGOOD', x);
 }).catch(function (err) {
-  return debug('BADBAD', err);
+  return console.log('BADBAD', err);
 });
 
 function unfurl(url, init) {
@@ -119,8 +119,8 @@ function handleStream(res, pkgOpts) {
 
       if (tag === 'head') {
         res.unpipe(parser);
-        parser.end();
-        res.end();
+        parser._destroy();
+        res._destroy();
         parser._parser.reset(); // Parse as little as possible.
       }
     }
@@ -133,8 +133,8 @@ function handleStream(res, pkgOpts) {
       // Abort if content type is not text/html or constient
       if (!contentType.includes('html')) {
         res.unpipe(parser);
-        parser.end();
-        res.end();
+        parser._destroy();
+        res._destroy();
         parser._parser.reset(); // Parse as little as possible.
         set(pkg, 'other._type', contentType);
       }
