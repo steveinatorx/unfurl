@@ -1,7 +1,10 @@
-require("babel-polyfill")
+'use strict'
 
+const includes = require('lodash.includes')
 const get = require('lodash.get')
 const set = require('lodash.set')
+const toPairs = require('lodash.topairs')
+const fromPairs = require('lodash.frompairs')
 const camelCase = require('lodash.camelcase')
 
 const fetch = require('node-fetch')
@@ -21,13 +24,7 @@ const shouldRollup = [
   'og:audio'
 ]
 
-unfurl('http://facebook.com')
-  .then(x => console.log('GOODGOOD', x))
-  .catch(err => console.log('BADBAD', err))
-
 function unfurl (url, init) {
-  debug('\n\n :::: unfurl ::::\n\n')
-
   init = init || {}
 
   const pkgOpts = {
@@ -45,14 +42,26 @@ function unfurl (url, init) {
 
   return fetch(url, fetchOpts)
     .then(res => res.body)
-    .then(res => handleStream(res, pkgOpts)) // TODO compose these fns better.
-    .then(res => postProcess(res, pkgOpts)) // TODO compose these fns better.
+    .then(handleStream(pkgOpts))
+    .then(postProcess(pkgOpts))
 }
 
-function handleStream (res, pkgOpts) {
-  return new Promise((resolve, reject) => {
-    debug('\n\n :::: handleStream ::::\n\n')
+function reset (res, parser) {
+  debug('got reset')
 
+  parser.end()
+  parser.reset() // Parse as little as possible.
+
+  res.unpipe(parser)
+  res.resume()
+
+  if (typeof res.destroy === 'function') {
+    res.destroy()
+  }
+}
+
+function handleStream (pkgOpts) {
+  return res => new Promise((resolve, reject) => {
     const parser = new htmlparser2.Parser({
       onopentag,
       ontext,
@@ -65,13 +74,13 @@ function handleStream (res, pkgOpts) {
     res.pipe(parser)
 
     function onopentagname (tag) {
-      // debug('<' + tag + '>')
+      debug('got open tag:', tag)
 
       this._tagname = tag
     }
 
     function onerror (err) {
-      debug('error', err)
+      debug('got parse error', err)
       reject(err)
     }
 
@@ -87,8 +96,6 @@ function handleStream (res, pkgOpts) {
 
       if (!prop) return
 
-      debug(prop + '=' + val)
-
       if (pkgOpts.oembed && attr.type === 'application/json+oembed') {
         pkg.oembed = attr.href
         return
@@ -98,9 +105,9 @@ function handleStream (res, pkgOpts) {
 
       let target
 
-      if (pkgOpts.ogp && ogp.includes(prop)) {
+      if (pkgOpts.ogp && includes(ogp, prop)) {
         target = (pkg.ogp || (pkg.ogp = {}))
-      } else if (pkgOpts.twitter && twitter.includes(prop)) {
+      } else if (pkgOpts.twitter && includes(twitter, prop)) {
         target = (pkg.twitter || (pkg.twitter = {}))
       } else {
         target = (pkg.other || (pkg.other = {}))
@@ -110,62 +117,46 @@ function handleStream (res, pkgOpts) {
     }
 
     function onclosetag (tag) {
-      debug('</' + tag + '>')
+      debug('got close tag:', tag)
 
       this._tagname = ''
 
       if (tag === 'head') {
-        debug('GOT HEAD. SHOULD STOP NOW')
-
-        parser.end()
-        parser.reset() // Parse as little as possible.
-
-        res.unpipe(parser)
-        res.resume()
-
-        if (typeof res.destroy === 'function') {
-          res.destroy()
-        }
-
+        reset(res, parser)
       }
-
-      // debug('res', res)
     }
 
     res.on('response', function (res) {
+      debug('got response')
+
       const headers = res.headers
 
       const contentType = get(headers, 'content-type', '')
 
       // Abort if content type is not text/html or constient
       if (!contentType.includes('html')) {
-        // parser.pause()
-        res.pause()
-        res.unpipe(parser)
-        parser._parser.reset() // Parse as little as possible.
+        reset(res, parser)
         set(pkg, 'other._type', contentType)
       }
     })
 
     res.on('data', () => {
-      debug('GOT SOME DATA')
+      debug('got data')
     })
 
     res.once('end', () => {
-      debug('ENDED')
+      debug('got end')
       resolve(pkg)
     })
 
     res.once('error', (err) => {
-      debug('ERRD', err.message)
+      debug('got error', err.message)
       reject(err)
     })
   })
 }
 
 function rollup (target, name, val) {
-  debug('\n\n :::: rollup ::::\n\n')
-
   if (!name || !val) return
 
   let rollupAs = shouldRollup.find(function (k) {
@@ -189,49 +180,42 @@ function rollup (target, name, val) {
   target[prop] = val
 }
 
-function postProcess (pkg, pkgOpts) {
-  debug('\n\n :::: postProcess ::::\n\n')
+function postProcess (pkgOpts) {
+  return function (pkg) {
+    const keys = [
+      'ogp.ogImage',
+      'twitter.twitterImage',
+      'twitter.twitterPlayer',
+      'ogp.ogVideo'
+    ]
 
-  const keys = [
-    'ogp.ogImage',
-    'twitter.twitterImage',
-    'twitter.twitterPlayer',
-    'ogp.ogVideo'
-  ]
+    for (const key of keys) {
+      let val = get(pkg, key)
+      if (!val) continue
 
-  for (const key of keys) {
-    let val = get(pkg, key)
-    if (!val) continue
+      val = val.sort((a, b) => a.width - b.width) // asc sort
 
-    val = val.sort((a, b) => a.width - b.width) // asc sort
+      set(pkg, key, val)
+    }
 
-    set(pkg, key, val)
+    if (pkgOpts.oembed && pkg.oembed) {
+      return fetch(pkg.oembed)
+        .then(res => res.json())
+        .then(oembedData => {
+          const unwind = get(oembedData, 'body', oembedData)
+
+          const pairs = toPairs(unwind)
+            .map(pair => [camelCase(pair[0]), pair[1]])
+            .filter(pair => oembed.includes(pair[0]))
+
+          pkg.oembed = fromPairs(pairs)
+
+          return pkg
+        })
+    }
+
+    return Promise.resolve(pkg)
   }
-
-  if (pkgOpts.oembed && pkg.oembed) {
-    return fetch(pkg.oembed)
-      .then(res => res.json())
-      .then(oembedData => {
-        const unwind = get(oembedData, 'body', oembedData)
-
-        // Even if we don't find valid oembed data we'll return an obj rather than the url string
-        pkg.oembed = {}
-
-        for (const [k, v] of Object.entries(unwind)) {
-          const camelKey = camelCase(k)
-          if (!oembed.includes(camelKey)) {
-            continue
-          }
-
-          pkg.oembed[camelKey] = v
-        }
-
-        return pkg
-      })
-  }
-
-  debug('DONEZO')
-  return Promise.resolve(pkg)
 }
 
 module.exports = unfurl

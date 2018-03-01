@@ -1,7 +1,7 @@
 {
   "name": "unfurl.js",
   "engines": {
-    "node": ">=8.0.0"
+    "node": ">=4.0.0"
   },
   "version": "2.0.0",
   "description": "Scraper for oEmbed, Twitter Cards and Open Graph metadata - fast and Promise-based",
@@ -13,7 +13,6 @@
     ]
   },
   "dependencies": {
-    "babel-polyfill": "^6.26.0",
     "debug": "^3.1.0",
     "htmlparser2": "^3.9.2",
     "lodash.camelcase": "^4.3.0",
@@ -22,12 +21,11 @@
     "node-fetch": "^1.7.3"
   },
   "devDependencies": {
-    "babel-cli": "^6.26.0",
-    "babel-preset-env": "^1.6.1",
     "chai": "^3.5.0",
     "chai-as-promised": "^7.0.0",
     "coveralls": "^3.0.0",
     "delay": "^2.0.0",
+    "glob": "^7.1.2",
     "inliner": "^1.13.1",
     "istanbul": "^1.1.0-alpha.1",
     "microtime": "^2.1.7",
