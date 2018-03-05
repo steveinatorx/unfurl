@@ -74,7 +74,7 @@ function handleStream (pkgOpts) {
     res.pipe(parser)
 
     function onopentagname (tag) {
-      debug('got open tag:', tag)
+      debug('got open tag', tag)
 
       this._tagname = tag
     }
@@ -117,7 +117,7 @@ function handleStream (pkgOpts) {
     }
 
     function onclosetag (tag) {
-      debug('got close tag:', tag)
+      debug('got close tag', tag)
 
       this._tagname = ''
 
@@ -126,7 +126,7 @@ function handleStream (pkgOpts) {
       }
     }
 
-    res.on('response', function (res) {
+    res.once('response', function (res) {
       debug('got response')
 
       const headers = res.headers
@@ -138,10 +138,6 @@ function handleStream (pkgOpts) {
         reset(res, parser)
         set(pkg, 'other._type', contentType)
       }
-    })
-
-    res.on('data', () => {
-      debug('got data')
     })
 
     res.once('end', () => {
