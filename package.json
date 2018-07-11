@@ -23,6 +23,7 @@
     "node-fetch": "^1.7.3"
   },
   "devDependencies": {
+    "babel-cli": "^6.26.0",
     "chai": "^3.5.0",
     "chai-as-promised": "^7.0.0",
     "coveralls": "^3.0.0",
