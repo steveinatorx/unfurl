@@ -17,6 +17,18 @@ const zippedKeys = ['og:image', 'twitter:image', 'twitter:player', 'og:video', '
 
 const sortedKeys = ['ogp.ogImage', 'twitter.twitterImage', 'twitter.twitterPlayer', 'ogp.ogVideo'];
 
+//polyfill Object.entries
+if (!Object.entries)
+  Object.entries = function( obj ){
+    var ownProps = Object.keys( obj ),
+        i = ownProps.length,
+        resArray = new Array(i); // preallocate the Array
+    while (i--)
+      resArray[i] = [ownProps[i], obj[ownProps[i]]];
+    
+    return resArray;
+  };
+
 function unfurl(url, init) {
   init = init || {};
 
